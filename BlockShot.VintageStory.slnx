@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/BlockShot.VintageStory.Core/BlockShot.VintageStory.Core.csproj" />
+  <Project Path="src/BlockShot.VintageStory/BlockShot.VintageStory.csproj" />
+  <Project Path="tests/BlockShot.VintageStory.Core.Tests/BlockShot.VintageStory.Core.Tests.csproj" />
+</Solution>

@@ -1,0 +1,14 @@
+{
+  "type": "code",
+  "modid": "blockshot",
+  "name": "BlockShot",
+  "description": "Capture and share Vintage Story screenshots through blocks.hot.",
+  "version": "0.1.0-dev",
+  "authors": [ "CreeperHost" ],
+  "side": "Client",
+  "requiredOnClient": false,
+  "requiredOnServer": false,
+  "dependencies": {
+    "game": "1.22.2"
+  }
+}
