@@ -44,6 +44,8 @@ internal sealed class BlockShotCaptureWorkflow : IDisposable
 
     public bool Busy => busy;
 
+    public Func<bool>? IsExternallyBusy { private get; set; }
+
     public double UploadProgress { get; private set; }
 
     public string? LastShareUrl { get; private set; }
@@ -51,6 +53,16 @@ internal sealed class BlockShotCaptureWorkflow : IDisposable
     public bool Capture()
     {
         if (busy) return true;
+        if (account.Session is null || account.Session.ExpiresWithin(TimeSpan.Zero))
+        {
+            api.ShowChatMessage("Link MineTogether before using BlockShot capture.");
+            return true;
+        }
+        if (IsExternallyBusy?.Invoke() == true)
+        {
+            api.ShowChatMessage("BlockShot is still processing a video.");
+            return true;
+        }
         if (Configuration.UploadMode == UploadMode.Off) return false;
 
         busy = true;
@@ -118,7 +130,7 @@ internal sealed class BlockShotCaptureWorkflow : IDisposable
     private async Task UploadAsync(string path)
     {
         var session = account.Session;
-        if (session is null)
+        if (session is null || session.ExpiresWithin(TimeSpan.Zero))
         {
             SaveLocal(path);
             api.ShowChatMessage("BlockShot saved the screenshot locally. Link MineTogether before uploading.");
@@ -138,6 +150,7 @@ internal sealed class BlockShotCaptureWorkflow : IDisposable
             var result = await blockShot.UploadPngAsync(
                 path,
                 session,
+                account.PlayerUid,
                 pack,
                 Configuration.Anonymous,
                 progress,
@@ -147,10 +160,9 @@ internal sealed class BlockShotCaptureWorkflow : IDisposable
             api.Event.EnqueueMainThreadTask(() =>
             {
                 if (Configuration.CopyUrlToClipboard) api.Input.ClipboardText = LastShareUrl;
-                api.ShowChatMessage(
-                    Configuration.CopyUrlToClipboard
-                        ? $"BlockShot uploaded: {LastShareUrl} (copied)"
-                        : $"BlockShot uploaded: {LastShareUrl}");
+                api.ShowChatMessage(BlockShotChatText.Uploaded(
+                    result.ShareUri,
+                    copied: Configuration.CopyUrlToClipboard));
                 Changed?.Invoke();
             }, "blockshot-upload-complete");
         }
@@ -190,7 +202,7 @@ internal sealed class BlockShotCaptureWorkflow : IDisposable
         {
             destination = Path.Combine(
                 localDirectory,
-                $"{Path.GetFileNameWithoutExtension(path)}-{Guid.NewGuid():N}.png");
+                $"{Path.GetFileNameWithoutExtension(path)}-{Guid.NewGuid():N}{Path.GetExtension(path)}");
         }
         File.Move(path, destination);
         return destination;

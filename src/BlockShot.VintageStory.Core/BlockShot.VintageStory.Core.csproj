@@ -4,6 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <BlockShotAssemblySuffix Condition="'$(BlockShotAssemblySuffix)' == ''">v0_1_13_dev</BlockShotAssemblySuffix>
+    <AssemblyName>BlockShot.VintageStory.Core.$(BlockShotAssemblySuffix)</AssemblyName>
   </PropertyGroup>
 </Project>
-

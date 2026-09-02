@@ -5,33 +5,44 @@ namespace BlockShot.VintageStory;
 
 internal sealed class BlockShotDialog : GuiDialog
 {
+    private const int VisibleHistoryRows = 4;
     private readonly BlockShotAccountController account;
     private readonly BlockShotCaptureWorkflow capture;
+    private readonly BlockShotVideoWorkflow video;
     private readonly BlockShotApiClient blockShot;
     private readonly CancellationTokenSource lifetime = new();
+    private readonly Dictionary<string, LoadedTexture> previewTextures = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BlockShotPreviewElement> previewElements = new(StringComparer.Ordinal);
+    private readonly HashSet<string> previewLoads = new(StringComparer.Ordinal);
+    private readonly HashSet<string> previewFailures = new(StringComparer.Ordinal);
     private IReadOnlyList<BlockShotCapture> history = [];
     private string historyMessage = "Open BlockShot to load recent captures.";
+    private int stateRefreshQueued;
     private bool disposed;
 
     public BlockShotDialog(
         ICoreClientAPI api,
         BlockShotAccountController account,
         BlockShotCaptureWorkflow capture,
+        BlockShotVideoWorkflow video,
         BlockShotApiClient blockShot)
         : base(api)
     {
         this.account = account;
         this.capture = capture;
+        this.video = video;
         this.blockShot = blockShot;
         account.Changed += OnStateChanged;
         capture.Changed += OnStateChanged;
+        video.Changed += OnStateChanged;
         ComposeDialog();
     }
 
-    public override string ToggleKeyCombinationCode => "blockshot-dialog";
+    public override string ToggleKeyCombinationCode => BlockShotModSystem.DialogHotkey;
 
     public override bool TryOpen()
     {
+        ComposeDialog();
         var opened = base.TryOpen();
         if (opened) _ = RefreshHistoryAsync();
         return opened;
@@ -42,63 +53,84 @@ internal sealed class BlockShotDialog : GuiDialog
         if (disposed) return;
         disposed = true;
         lifetime.Cancel();
-        lifetime.Dispose();
         account.Changed -= OnStateChanged;
         capture.Changed -= OnStateChanged;
+        video.Changed -= OnStateChanged;
+        SingleComposer?.Dispose();
+        SingleComposer = null;
+        previewElements.Clear();
+        DisposePreviewTextures();
+        lifetime.Dispose();
         base.Dispose();
     }
 
     private void ComposeDialog()
     {
         SingleComposer?.Dispose();
-        var bounds = ElementBounds.Fixed(EnumDialogArea.CenterMiddle, 0, 0, 820, 520);
+        previewElements.Clear();
+        PrunePreviewState();
+        var bounds = ElementBounds.Fixed(EnumDialogArea.CenterMiddle, 0, 0, 820, 550);
         var composer = capi.Gui
             .CreateCompo("blockshot", bounds)
             .AddShadedDialogBG(ElementBounds.Fill)
             .AddDialogTitleBar("BlockShot", () => TryClose())
-            .AddStaticText(AccountTitle(), CairoFont.WhiteMediumText(), ElementBounds.Fixed(24, 52, 530, 30))
-            .AddStaticText(AccountDescription(), CairoFont.WhiteSmallText(), ElementBounds.Fixed(24, 82, 530, 44))
-            .AddButton(AccountButtonText(), OnAccount, ElementBounds.Fixed(590, 66, 190, 34))
+            .AddStaticText(AccountTitle(), CairoFont.WhiteMediumText(), ElementBounds.Fixed(24, 52, 490, 30))
+            .AddStaticText(AccountDescription(), CairoFont.WhiteSmallText(), ElementBounds.Fixed(24, 82, 490, 44))
+            .AddButton(AccountButtonText(), OnAccount, ElementBounds.Fixed(540, 66, 240, 34))
             .AddStaticText("Capture settings", CairoFont.WhiteMediumText(), ElementBounds.Fixed(24, 136, 250, 30))
-            .AddButton($"F12: {capture.Configuration.UploadMode}", OnCycleMode, ElementBounds.Fixed(24, 174, 210, 34))
-            .AddButton($"Anonymous: {OnOff(capture.Configuration.Anonymous)}", OnToggleAnonymous, ElementBounds.Fixed(244, 174, 180, 34))
-            .AddButton($"Copy URL: {OnOff(capture.Configuration.CopyUrlToClipboard)}", OnToggleClipboard, ElementBounds.Fixed(434, 174, 170, 34))
-            .AddButton(capture.Busy ? UploadStatus() : "Capture now", OnCapture, ElementBounds.Fixed(614, 174, 166, 34))
-            .AddStaticText("Recent uploads", CairoFont.WhiteMediumText(), ElementBounds.Fixed(24, 228, 250, 30))
-            .AddButton("Refresh", OnRefresh, ElementBounds.Fixed(674, 224, 106, 34));
+            .AddButton(capture.Busy ? UploadStatus() : "Screenshot", OnCapture, ElementBounds.Fixed(408, 132, 178, 34))
+            .AddButton(VideoButtonText(), OnVideo, ElementBounds.Fixed(596, 132, 184, 34))
+            .AddButton($"Upload: {capture.Configuration.UploadMode}", OnCycleMode, ElementBounds.Fixed(24, 174, 240, 34))
+            .AddButton($"Anonymous: {OnOff(capture.Configuration.Anonymous)}", OnToggleAnonymous, ElementBounds.Fixed(276, 174, 240, 34))
+            .AddButton($"Copy URL: {OnOff(capture.Configuration.CopyUrlToClipboard)}", OnToggleClipboard, ElementBounds.Fixed(528, 174, 252, 34))
+            .AddStaticText(VideoStatus(), CairoFont.WhiteSmallText(), ElementBounds.Fixed(24, 220, 620, 34))
+            .AddStaticText("Recent uploads", CairoFont.WhiteMediumText(), ElementBounds.Fixed(24, 258, 250, 30))
+            .AddButton("Refresh", OnRefresh, ElementBounds.Fixed(660, 254, 120, 34));
+
+        if (video.Active)
+        {
+            composer.AddButton("Cancel", OnVideoCancel, ElementBounds.Fixed(660, 214, 120, 34));
+        }
 
         if (history.Count == 0)
         {
             composer.AddStaticText(
                 historyMessage,
                 CairoFont.WhiteSmallText().WithLineHeightMultiplier(1.25),
-                ElementBounds.Fixed(24, 272, 756, 80));
+                ElementBounds.Fixed(24, 302, 756, 80));
         }
         else
         {
-            for (var index = 0; index < Math.Min(5, history.Count); index++)
+            for (var index = 0; index < Math.Min(VisibleHistoryRows, history.Count); index++)
             {
                 var item = history[index];
-                var y = 270 + (index * 44);
+                var y = 300 + (index * 54);
+                var preview = new BlockShotPreviewElement(capi, ElementBounds.Fixed(24, y, 92, 52));
+                if (previewTextures.TryGetValue(item.Code, out var texture)) preview.Texture = texture;
+                previewElements[item.Code] = preview;
                 composer
+                    .AddInteractiveElement(preview, $"blockshot-preview-{index}")
                     .AddStaticText(
-                        $"{item.Created.LocalDateTime:g}   {item.Code}   {Size(item.FileMeta?.Size)}",
+                        item.Created.ToLocalTime().ToString("ddd d MMM, HH:mm"),
                         CairoFont.WhiteSmallText(),
-                        ElementBounds.Fixed(24, y + 7, 500, 28))
-                    .AddButton("Copy", () => OnCopy(item.Code), ElementBounds.Fixed(530, y, 76, 32))
-                    .AddButton("Open", () => OnOpen(item.Code), ElementBounds.Fixed(614, y, 76, 32))
-                    .AddButton("Delete", () => OnDelete(item.Code), ElementBounds.Fixed(698, y, 82, 32));
+                        ElementBounds.Fixed(132, y + 12, 340, 28))
+                    .AddButton("Copy", () => OnCopy(item.Code), ElementBounds.Fixed(496, y + 9, 86, 34))
+                    .AddButton("Open", () => OnOpen(item.Code), ElementBounds.Fixed(592, y + 9, 86, 34))
+                    .AddButton("Delete", () => OnDelete(item.Code), ElementBounds.Fixed(688, y + 9, 92, 34));
             }
         }
 
         SingleComposer = composer.Compose();
+        QueueMissingPreviews();
     }
 
     private void OnStateChanged()
     {
+        if (Interlocked.Exchange(ref stateRefreshQueued, 1) != 0) return;
         capi.Event.EnqueueMainThreadTask(() =>
         {
-            if (!disposed) ComposeDialog();
+            Interlocked.Exchange(ref stateRefreshQueued, 0);
+            if (!disposed && IsOpened()) ComposeDialog();
         }, "blockshot-dialog-state");
     }
 
@@ -140,8 +172,19 @@ internal sealed class BlockShotDialog : GuiDialog
         return true;
     }
 
+    private bool OnVideo()
+    {
+        var wasRecording = video.IsRecording;
+        video.ToggleRecording();
+        if (!wasRecording && video.IsRecording) TryClose();
+        return true;
+    }
+
+    private bool OnVideoCancel() => video.Cancel();
+
     private bool OnRefresh()
     {
+        previewFailures.Clear();
         _ = RefreshHistoryAsync();
         return true;
     }
@@ -225,30 +268,126 @@ internal sealed class BlockShotDialog : GuiDialog
 
     private string AccountDescription() => account.State switch
     {
-        BlockShotAccountState.SignedIn => "Using the shared MineTogether session.token also used by MineTogether for VS.",
-        BlockShotAccountState.Pairing => "Approve the server-connect request in your browser. This window updates automatically.",
+        BlockShotAccountState.SignedIn => "Captures are linked to this MineTogether account.",
+        BlockShotAccountState.Pairing => "Approve the Vintage Story connection in your browser. This window updates automatically.",
         BlockShotAccountState.Failed => account.Failure ?? "Pairing failed. Try again.",
         _ => "Link once in your browser; no password or private signing key is stored by the mod."
     };
 
     private string AccountButtonText() => account.State switch
     {
-        BlockShotAccountState.SignedIn => "Renew account link",
-        BlockShotAccountState.Pairing => "Open approval page",
-        _ => "Link MineTogether"
+        BlockShotAccountState.SignedIn => "Renew link",
+        BlockShotAccountState.Pairing => "Open approval",
+        _ => "Link account"
     };
 
     private string UploadStatus() => capture.UploadProgress > 0
         ? $"Uploading {capture.UploadProgress:P0}"
         : "Capturing…";
 
+    private string VideoButtonText()
+    {
+        if (video.IsRecording) return $"Stop video ({Math.Min(BlockShotVideoRecorder.MaximumSeconds, (int)video.Elapsed.TotalSeconds)}s)";
+        if (video.IsEncoding) return "Encoding video…";
+        if (video.IsUploading) return video.UploadProgress > 0 ? $"Uploading {video.UploadProgress:P0}" : "Uploading video…";
+        return "Record video";
+    }
+
+    private string VideoStatus()
+    {
+        if (video.IsRecording)
+        {
+            var dropped = video.DroppedFrames;
+            return dropped == 0
+                ? "Recording video — Ctrl+Shift+R stops."
+                : $"Recording video — {dropped} frame{(dropped == 1 ? string.Empty : "s")} dropped to keep the game responsive.";
+        }
+        if (video.IsEncoding) return "Encoding queued frames in the background; the game remains playable.";
+        if (video.IsUploading) return "Uploading video in the background; Cancel keeps a local copy.";
+        return "Ctrl+Shift+S: screenshot   •   Ctrl+Shift+R: start/stop video (30s maximum).";
+    }
+
     private static string OnOff(bool value) => value ? "On" : "Off";
 
-    private static string Size(long? bytes) => bytes switch
+    private void QueueMissingPreviews()
     {
-        null => string.Empty,
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024d:0.0} KiB",
-        _ => $"{bytes / (1024d * 1024d):0.0} MiB"
-    };
+        foreach (var item in history.Take(VisibleHistoryRows))
+        {
+            if (previewTextures.ContainsKey(item.Code) ||
+                previewLoads.Contains(item.Code) ||
+                previewFailures.Contains(item.Code)) continue;
+            previewLoads.Add(item.Code);
+            _ = LoadPreviewAsync(item.Code, lifetime.Token);
+        }
+    }
+
+    private async Task LoadPreviewAsync(string code, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var png = await blockShot.GetPreviewPngAsync(code, cancellationToken).ConfigureAwait(false);
+            var pixels = await Task.Run(
+                () => BlockShotPreviewPixels.DecodePng(png, capi.Logger),
+                cancellationToken).ConfigureAwait(false);
+            capi.Event.EnqueueMainThreadTask(
+                () => ApplyPreview(code, pixels),
+                $"blockshot-preview-ready-{code}");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error)
+        {
+            capi.Event.EnqueueMainThreadTask(() =>
+            {
+                if (disposed) return;
+                previewLoads.Remove(code);
+                previewFailures.Add(code);
+                capi.Logger.Warning("BlockShot could not load preview {0}: {1}", code, error.Message);
+            }, $"blockshot-preview-failed-{code}");
+        }
+    }
+
+    private void ApplyPreview(string code, BlockShotPreviewPixels pixels)
+    {
+        previewLoads.Remove(code);
+        if (disposed || !DisplayedCodes().Contains(code)) return;
+
+        var texture = new LoadedTexture(capi, 0, pixels.Width, pixels.Height);
+        try
+        {
+            capi.Render.LoadOrUpdateTextureFromBgra(pixels.Bgra, linearMag: true, clampMode: 0, ref texture);
+        }
+        catch (Exception error)
+        {
+            texture.Dispose();
+            previewFailures.Add(code);
+            capi.Logger.Warning("BlockShot could not create preview texture {0}: {1}", code, error.Message);
+            return;
+        }
+
+        if (previewTextures.Remove(code, out var previous)) previous.Dispose();
+        previewTextures[code] = texture;
+        if (previewElements.TryGetValue(code, out var element)) element.Texture = texture;
+    }
+
+    private HashSet<string> DisplayedCodes() =>
+        history.Take(VisibleHistoryRows).Select(item => item.Code).ToHashSet(StringComparer.Ordinal);
+
+    private void PrunePreviewState()
+    {
+        var displayed = DisplayedCodes();
+        foreach (var code in previewTextures.Keys.Where(code => !displayed.Contains(code)).ToArray())
+        {
+            previewTextures.Remove(code, out var texture);
+            texture?.Dispose();
+        }
+        previewFailures.RemoveWhere(code => !displayed.Contains(code));
+    }
+
+    private void DisposePreviewTextures()
+    {
+        foreach (var texture in previewTextures.Values) texture.Dispose();
+        previewTextures.Clear();
+    }
 }

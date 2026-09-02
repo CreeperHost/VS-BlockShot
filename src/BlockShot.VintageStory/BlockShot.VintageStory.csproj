@@ -4,12 +4,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>BlockShot.VintageStory</AssemblyName>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <BlockShotAssemblySuffix Condition="'$(BlockShotAssemblySuffix)' == ''">v0_1_13_dev</BlockShotAssemblySuffix>
+    <AssemblyName>BlockShot.VintageStory.$(BlockShotAssemblySuffix)</AssemblyName>
     <VintageStoryVersion>1.22.2</VintageStoryVersion>
     <VintageStoryPath Condition="'$(VintageStoryPath)' == ''">$(VINTAGE_STORY)</VintageStoryPath>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BlockShot.VintageStory.Core/BlockShot.VintageStory.Core.csproj" />
+    <PackageReference Include="SIPSorcery.VP8" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="VintagestoryAPI">
@@ -18,6 +21,10 @@
     </Reference>
     <Reference Include="VintagestoryLib">
       <HintPath>$(VintageStoryPath)\VintagestoryLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OpenTK.Graphics">
+      <HintPath>$(VintageStoryPath)\Lib\OpenTK.Graphics.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <None Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />

@@ -9,7 +9,12 @@ internal sealed class BlockShotCapturePromptDialog : GuiDialog
     private readonly Action cancel;
     private bool resolved;
 
-    public BlockShotCapturePromptDialog(ICoreClientAPI api, Action upload, Action saveLocal, Action cancel)
+    public BlockShotCapturePromptDialog(
+        ICoreClientAPI api,
+        Action upload,
+        Action saveLocal,
+        Action cancel,
+        string mediaName = "screenshot")
         : base(api)
     {
         this.upload = upload;
@@ -19,9 +24,9 @@ internal sealed class BlockShotCapturePromptDialog : GuiDialog
         SingleComposer = capi.Gui
             .CreateCompo("blockshot-capture-prompt", bounds)
             .AddShadedDialogBG(ElementBounds.Fill)
-            .AddDialogTitleBar("BlockShot screenshot", OnCancel)
+            .AddDialogTitleBar($"BlockShot {mediaName}", OnCancel)
             .AddStaticText(
-                "Upload this screenshot to blocks.hot?",
+                $"Upload this {mediaName} to blocks.hot?",
                 CairoFont.WhiteMediumText(),
                 ElementBounds.Fixed(24, 58, 472, 32))
             .AddButton("Upload", OnUpload, ElementBounds.Fixed(24, 112, 140, 34))
