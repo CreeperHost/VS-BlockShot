@@ -41,6 +41,9 @@ public sealed class BlockShotApiException(
 /// <summary>Typed client for the existing blocks.hot v1 API.</summary>
 public sealed class BlockShotApiClient
 {
+    private const int MaximumPreviewBytes = 8 * 1024 * 1024;
+    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
     public static readonly Uri DefaultApiRoot = new("https://blocks.hot/api/v1/");
     public static readonly Uri DefaultSiteRoot = new("https://blocks.hot/");
 
@@ -65,14 +68,57 @@ public sealed class BlockShotApiClient
     public async Task<BlockShotUploadResult> UploadPngAsync(
         string filePath,
         MineTogetherSessionToken session,
+        string playerUid,
         VintageStoryPackIdentity pack,
         bool anonymous,
         IProgress<double>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await UploadMediaAsync(
+            filePath,
+            "image/png",
+            session,
+            playerUid,
+            pack,
+            anonymous,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+
+    public async Task<BlockShotUploadResult> UploadWebmAsync(
+        string filePath,
+        MineTogetherSessionToken session,
+        string playerUid,
+        VintageStoryPackIdentity pack,
+        bool anonymous,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        await UploadMediaAsync(
+            filePath,
+            "video/webm",
+            session,
+            playerUid,
+            pack,
+            anonymous,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+
+    private async Task<BlockShotUploadResult> UploadMediaAsync(
+        string filePath,
+        string mediaType,
+        MineTogetherSessionToken session,
+        string playerUid,
+        VintageStoryPackIdentity pack,
+        bool anonymous,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(pack);
+        var normalizedPlayerUid = VintageStorySessionIdentity.NormalizePlayerUid(playerUid);
+        if (session.Subject != VintageStorySessionIdentity.SubjectFor(normalizedPlayerUid))
+        {
+            throw new InvalidDataException("The Vintage Story PlayerUID does not match the MineTogether session.");
+        }
 
         var file = new FileInfo(filePath);
         if (!file.Exists) throw new FileNotFoundException("The captured screenshot does not exist.", file.FullName);
@@ -85,14 +131,15 @@ public sealed class BlockShotApiClient
             bufferSize: 81920,
             useAsync: true);
         using var request = CreateAuthenticatedRequest(HttpMethod.Put, "shares", session);
-        request.Headers.TryAddWithoutValidation("Screencap-Type", "image/png");
+        request.Headers.TryAddWithoutValidation("Screencap-Type", mediaType);
         request.Headers.TryAddWithoutValidation("Anonymous", anonymous ? "true" : "false");
+        request.Headers.TryAddWithoutValidation("Player-Uid", normalizedPlayerUid);
 
         // MineTogether identifies the running game as vintagestory:<exact ShortGameVersion>.
         // Preserve that complete key in Modpack-Id instead of parsing or normalizing it.
         request.Headers.TryAddWithoutValidation("Modpack-Platform", VintageStoryPackIdentity.Platform);
         request.Headers.TryAddWithoutValidation("Modpack-Id", pack.CompatibilityKey);
-        request.Content = new ProgressStreamContent(stream, file.Length, "image/png", progress);
+        request.Content = new ProgressStreamContent(stream, file.Length, mediaType, progress);
 
         using var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -164,6 +211,47 @@ public sealed class BlockShotApiClient
     {
         ValidateShareCode(code);
         return new Uri(apiRoot, $"shares/{code}/preview/smol");
+    }
+
+    public async Task<byte[]> GetPreviewPngAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateShareCode(code);
+        using var request = new HttpRequestMessage(HttpMethod.Get, PreviewUri(code));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("image/png"));
+        using var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw CreateApiError(response.StatusCode, body);
+        }
+
+        if (response.Content.Headers.ContentLength is > MaximumPreviewBytes)
+        {
+            throw new BlockShotApiException("BlockShot returned an oversized preview.");
+        }
+
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var destination = new MemoryStream();
+        var buffer = new byte[81920];
+        while (true)
+        {
+            var read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
+            if (destination.Length + read > MaximumPreviewBytes)
+            {
+                throw new BlockShotApiException("BlockShot returned an oversized preview.");
+            }
+            await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
+
+        var png = destination.ToArray();
+        if (!png.AsSpan().StartsWith(PngSignature))
+        {
+            throw new BlockShotApiException("BlockShot returned an invalid preview image.");
+        }
+        return png;
     }
 
     private HttpRequestMessage CreateAuthenticatedRequest(
@@ -256,14 +344,23 @@ internal sealed class ProgressStreamContent : HttpContent
     }
 
     protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        => await CopySourceToAsync(stream, CancellationToken.None).ConfigureAwait(false);
+
+    protected override async Task SerializeToStreamAsync(
+        Stream stream,
+        TransportContext? context,
+        CancellationToken cancellationToken)
+        => await CopySourceToAsync(stream, cancellationToken).ConfigureAwait(false);
+
+    private async Task CopySourceToAsync(Stream stream, CancellationToken cancellationToken)
     {
         var buffer = new byte[81920];
         long copied = 0;
         while (true)
         {
-            var read = await source.ReadAsync(buffer).ConfigureAwait(false);
+            var read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
-            await stream.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+            await stream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
             copied += read;
             progress?.Report(length == 0 ? 1 : copied / (double)length);
         }
