@@ -20,7 +20,7 @@ internal sealed class BlockShotCapturePromptDialog : GuiDialog
         this.upload = upload;
         this.saveLocal = saveLocal;
         this.cancel = cancel;
-        var bounds = ElementBounds.Fixed(EnumDialogArea.CenterMiddle, 0, 0, 520, 170);
+        var bounds = ElementBounds.Fixed(EnumDialogArea.CenterMiddle, 0, 0, 520, 190);
         SingleComposer = capi.Gui
             .CreateCompo("blockshot-capture-prompt", bounds)
             .AddShadedDialogBG(ElementBounds.Fill)
@@ -28,10 +28,10 @@ internal sealed class BlockShotCapturePromptDialog : GuiDialog
             .AddStaticText(
                 $"Upload this {mediaName} to blocks.hot?",
                 CairoFont.WhiteMediumText(),
-                ElementBounds.Fixed(24, 58, 472, 32))
-            .AddButton("Upload", OnUpload, ElementBounds.Fixed(24, 112, 140, 34))
-            .AddButton("Save locally", OnSaveLocal, ElementBounds.Fixed(174, 112, 150, 34))
-            .AddButton("Discard", OnCancelButton, ElementBounds.Fixed(334, 112, 120, 34))
+                ElementBounds.Fixed(24, 58, 472, 56))
+            .AddButton("Upload", OnUpload, ElementBounds.Fixed(24, 132, 140, 34))
+            .AddButton("Save locally", OnSaveLocal, ElementBounds.Fixed(174, 132, 150, 34))
+            .AddButton("Discard", OnCancelButton, ElementBounds.Fixed(334, 132, 120, 34))
             .Compose();
     }
 
