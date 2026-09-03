@@ -31,6 +31,7 @@
       <HintPath>$(VintageStoryPath)\Lib\cairo-sharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <None Include="modicon.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="RequireVintageStorySdk" BeforeTargets="ResolveReferences"

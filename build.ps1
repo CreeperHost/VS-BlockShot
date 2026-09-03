@@ -37,6 +37,7 @@ foreach ($runtimeAssembly in $runtimeAssemblies) {
     Copy-Item -LiteralPath (Join-Path $buildOutput $runtimeAssembly) -Destination $stage
 }
 Copy-Item -LiteralPath (Join-Path $buildOutput "modinfo.json") -Destination $stage
+Copy-Item -LiteralPath (Join-Path $buildOutput "modicon.png") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repository "LICENSE.md") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repository "NOTICE") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repository "THIRD-PARTY-NOTICES.md") -Destination $stage
