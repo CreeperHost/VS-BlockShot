@@ -27,6 +27,10 @@
       <HintPath>$(VintageStoryPath)\Lib\OpenTK.Graphics.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="cairo-sharp">
+      <HintPath>$(VintageStoryPath)\Lib\cairo-sharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <None Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="RequireVintageStorySdk" BeforeTargets="ResolveReferences"

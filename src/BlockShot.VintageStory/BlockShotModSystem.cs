@@ -155,8 +155,21 @@ public sealed class BlockShotModSystem : ModSystem
     private void OpenDialog()
     {
         pauseButton?.TryClose();
+        CloseEscapeMenu();
         if (dialog?.IsOpened() == true) dialog.TryClose();
         else dialog?.TryOpen();
+    }
+
+    private void CloseEscapeMenu()
+    {
+        if (api is null) return;
+
+        var escapeMenu = api.LoadedGuis
+            .OfType<GuiDialog>()
+            .FirstOrDefault(candidate =>
+                candidate.IsOpened() &&
+                string.Equals(candidate.ToggleKeyCombinationCode, EscapeMenuToggleCode, StringComparison.Ordinal));
+        escapeMenu?.TryClose();
     }
 
     private void OnPauseResume(bool _) => RefreshPauseButton();
