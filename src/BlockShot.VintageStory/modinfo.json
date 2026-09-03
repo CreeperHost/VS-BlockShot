@@ -3,7 +3,7 @@
   "modid": "blockshot",
   "name": "BlockShot",
   "description": "Capture and share Vintage Story screenshots and short videos through blocks.hot.",
-  "version": "0.1.13-dev",
+  "version": "1.0.0",
   "authors": [ "CreeperHost" ],
   "side": "Client",
   "requiredOnClient": false,

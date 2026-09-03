@@ -32,9 +32,6 @@ public sealed class BlockShotModSystem : ModSystem
         api = clientApi;
         var exactVersion = GetExactRuntimeGameVersion();
         var pack = new VintageStoryPackIdentity(exactVersion);
-        clientApi.Logger.Notification(
-            "BlockShot is using exact Vintage Story MineTogether compatibility key '{0}'.",
-            pack.CompatibilityKey);
 
         var blockShotData = clientApi.GetOrCreateDataPath("BlockShot");
         var mineTogetherData = clientApi.GetOrCreateDataPath("MineTogether");

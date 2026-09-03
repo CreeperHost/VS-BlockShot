@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <BlockShotAssemblySuffix Condition="'$(BlockShotAssemblySuffix)' == ''">v0_1_13_dev</BlockShotAssemblySuffix>
+    <BlockShotAssemblySuffix Condition="'$(BlockShotAssemblySuffix)' == ''">v1_0_0</BlockShotAssemblySuffix>
     <AssemblyName>BlockShot.VintageStory.$(BlockShotAssemblySuffix)</AssemblyName>
     <VintageStoryVersion>1.22.2</VintageStoryVersion>
     <VintageStoryPath Condition="'$(VintageStoryPath)' == ''">$(VINTAGE_STORY)</VintageStoryPath>
